@@ -1,4 +1,4 @@
-import type { Detector, DetectorContext, Finding, Language } from '../types.js';
+import type { Detector, DetectorContext, Finding, Language, Severity } from '../types.js';
 import { blockExtent, indentOf, isJsFamily, isTestPath, makeFinding } from './util.js';
 
 const MAX_FUNCTION_LINES = 60;
@@ -17,8 +17,38 @@ const FUNCTION_START: Partial<Record<Language, RegExp>> = {
 };
 
 /** Values a Python except block returns when it is giving up. */
-const PY_EMPTYISH = /^return\s*(None|\[\]|\{\}|""|''|0|False)?\s*$/;
+/**
+ * Values that lose the failure. `False` is deliberately absent: a predicate
+ * answering `return False` on `UnicodeEncodeError` is returning its result.
+ */
+const PY_EMPTYISH = /^return\s*(None|\[\]|\{\}|""|'')?\s*$/;
 const PY_LOGGING = /^(print|logging\.\w+|logger\.\w+|log\.\w+|sys\.stderr\.write)\s*\(/;
+
+/**
+ * How much the `except` clause actually commits to. This is the whole signal:
+ * `except ImportError: pass` states precisely which failure it expects and what
+ * it means, while a bare `except: pass` states nothing at all. Scoring them the
+ * same makes every idiomatic Python file look reckless.
+ */
+type ExceptBreadth = 'bare' | 'broad' | 'narrow';
+
+function breadthOf(clause: string): ExceptBreadth {
+  if (clause === '') return 'bare';
+  if (/^(Exception|BaseException)(\s+as\s+\w+)?$/.test(clause)) return 'broad';
+  return 'narrow';
+}
+
+/**
+ * Exceptions whose whole purpose is to be caught and ignored: probing for an
+ * optional dependency, or duck-typing an attribute. Silence is the correct
+ * handling, and flagging it teaches people to distrust the tool.
+ */
+const EXPECTED_FAILURES = /^(ImportError|ModuleNotFoundError|AttributeError)\b/;
+
+function stepDown(severity: Severity): Severity {
+  const order: Severity[] = ['high', 'medium', 'low', 'info'];
+  return order[Math.min(order.length - 1, order.indexOf(severity) + 1)]!;
+}
 
 function pythonErrorHandling(ctx: DetectorContext): Finding[] {
   const findings: Finding[] = [];
@@ -34,13 +64,14 @@ function pythonErrorHandling(ctx: DetectorContext): Finding[] {
     const clause = match[1] ?? '';
     const line = i + 1;
     const end = blockExtent(lines, i);
+    const breadth = breadthOf(clause);
 
-    const body = lines
-      .slice(i + 1, end + 1)
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith('#'));
+    const bodyLines = lines.slice(i + 1, end + 1).map((l) => l.trim());
+    const body = bodyLines.filter((l) => l && !l.startsWith('#'));
+    // A commented block is a decision someone wrote down, same as in JS.
+    const explained = bodyLines.some((l) => l.startsWith('#'));
 
-    if (clause === '') {
+    if (breadth === 'bare') {
       findings.push(
         makeFinding({
           rule: 'error-handling.bare-except',
@@ -54,7 +85,7 @@ function pythonErrorHandling(ctx: DetectorContext): Finding[] {
           remediation: 'Catch the exceptions you can actually handle, or use `except Exception:`.',
         }),
       );
-    } else if (/^Exception(\s+as\s+\w+)?$/.test(clause) || /^BaseException/.test(clause)) {
+    } else if (breadth === 'broad') {
       findings.push(
         makeFinding({
           rule: 'error-handling.broad-except',
@@ -71,13 +102,20 @@ function pythonErrorHandling(ctx: DetectorContext): Finding[] {
       );
     }
 
+    // Probing for an optional dependency is not error handling to fix.
+    if (breadth === 'narrow' && EXPECTED_FAILURES.test(clause)) continue;
+
     if (body.length === 0 || (body.length === 1 && body[0] === 'pass')) {
+      const base: Severity = breadth === 'narrow' ? 'low' : 'high';
       findings.push(
         makeFinding({
           rule: 'error-handling.empty-catch',
           category: 'error-handling',
-          severity: 'high',
-          message: 'Except block silently swallows the exception.',
+          severity: explained ? stepDown(base) : base,
+          message:
+            breadth === 'narrow'
+              ? `\`${clause}\` is caught and ignored.`
+              : 'Except block silently swallows the exception.',
           path,
           line,
           endLine: end + 1,
@@ -89,13 +127,13 @@ function pythonErrorHandling(ctx: DetectorContext): Finding[] {
       continue;
     }
 
-    const allLogging = body.every((l) => PY_LOGGING.test(l));
-    if (allLogging) {
+    if (body.every((l) => PY_LOGGING.test(l))) {
+      const base: Severity = breadth === 'narrow' ? 'low' : 'medium';
       findings.push(
         makeFinding({
           rule: 'error-handling.log-and-continue',
           category: 'error-handling',
-          severity: 'medium',
+          severity: explained ? stepDown(base) : base,
           message: 'Except block logs the exception and continues.',
           path,
           line,
@@ -113,11 +151,12 @@ function pythonErrorHandling(ctx: DetectorContext): Finding[] {
       .some((l) => PY_EMPTYISH.test(l));
     const onlyLogsAndReturns = body.every((l) => PY_LOGGING.test(l) || l.startsWith('return'));
     if (returnsEmpty && onlyLogsAndReturns) {
+      const base: Severity = breadth === 'narrow' ? 'low' : 'high';
       findings.push(
         makeFinding({
           rule: 'error-handling.swallow-default',
           category: 'error-handling',
-          severity: 'high',
+          severity: explained ? stepDown(base) : base,
           message: 'Except block replaces the exception with an empty default value.',
           path,
           line,
@@ -139,7 +178,10 @@ function pythonTypeEscapes(ctx: DetectorContext): Finding[] {
   let firstAnyLine = 0;
 
   ctx.lines.forEach((raw, index) => {
-    if (/#\s*type:\s*ignore/.test(raw)) {
+    // `# type: ignore[assignment]` names the error it silences, which is
+    // exactly what the blanket-ignore remediation asks for. Only the blanket
+    // form is a finding.
+    if (/#\s*type:\s*ignore(?!\s*\[)/.test(raw)) {
       findings.push(
         makeFinding({
           rule: 'type-escapes.mypy-suppression',
@@ -309,7 +351,7 @@ function structure(ctx: DetectorContext): Finding[] {
     }
   }
 
-  if (ctx.stats.lines > MAX_FILE_LINES) {
+  if (!isTestPath(ctx.path) && ctx.stats.lines > MAX_FILE_LINES) {
     findings.push(
       makeFinding({
         rule: 'structure.god-file',
@@ -354,7 +396,7 @@ export const genericDetector: Detector = {
     }
 
     return isTestPath(ctx.path)
-      ? findings.filter((f) => f.rule !== 'structure.long-function')
+      ? findings.filter((f) => !f.rule.startsWith('structure.'))
       : findings;
   },
 };

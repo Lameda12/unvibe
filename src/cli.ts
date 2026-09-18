@@ -17,10 +17,10 @@ const EXIT_ERROR = 2;
 const SEVERITY_RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2, info: 3 };
 
 const USAGE = `USAGE
-  unvibe scan [target] [options]     score a codebase
-  unvibe plan [target] [options]     emit an ordered refactor plan
-  unvibe skill install [options]     install the agent skill
-  unvibe rules                       list every rule id
+  unvibe-cli scan [target] [options]     score a codebase
+  unvibe-cli plan [target] [options]     emit an ordered refactor plan
+  unvibe-cli skill install [options]     install the agent skill
+  unvibe-cli rules                       list every rule id
 
 TARGET
   .                                  a local directory (default)
@@ -38,6 +38,7 @@ SCAN OPTIONS
       --max-slop <n>       exit 1 when the score exceeds n
       --max-findings <n>   exit 1 when findings exceed n
       --no-git             skip git history analysis
+      --no-gitignore       scan files the repo's .gitignore excludes
       --no-duplication     skip cross-file clone detection
       --keep-clone         leave a cloned repo on disk and print its path
       --no-banner          suppress the startup banner
@@ -56,11 +57,11 @@ EXIT CODES
   0  clean   1  threshold exceeded   2  scan failed
 
 EXAMPLES
-  unvibe scan .
-  unvibe scan facebook/react --min-severity high
-  unvibe scan . --format sarif -o unvibe.sarif
-  unvibe plan owner/repo > UNVIBE.md
-  unvibe skill install --host claude,codex
+  unvibe-cli scan .
+  unvibe-cli scan facebook/react --min-severity high
+  unvibe-cli scan . --format sarif -o unvibe.sarif
+  unvibe-cli plan owner/repo > UNVIBE.md
+  unvibe-cli skill install --host claude,codex
 `;
 
 interface ParsedArgs {
@@ -176,6 +177,7 @@ function scanOptionsFrom(flags: ParsedArgs['flags'], config: UnvibeConfig = {}):
     ...(ignoreRules.length > 0 ? { ignoreRules } : {}),
     // `--no-git` arrives as flags.get('no-git') === true.
     skipGit: flags.get('no-git') === true || flags.get('git') === false,
+    respectGitignore: !(flags.get('no-gitignore') === true),
     skipDuplication: flags.get('no-duplication') === true || flags.get('duplication') === false,
     onProgress: (message) => {
       if (flags.get('verbose') === true) process.stderr.write(`  ${message}\n`);
@@ -445,7 +447,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 }
 
 // Only self-execute as a binary, so tests can import `main` freely.
-if (process.argv[1] && /unvibe|cli\.(js|cjs|ts)$/.test(process.argv[1])) {
+if (process.argv[1] && /unvibe(-cli)?|cli\.(js|cjs|ts)$/.test(process.argv[1])) {
   main().then(
     (code) => {
       process.exitCode = code;

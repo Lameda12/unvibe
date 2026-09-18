@@ -11,6 +11,8 @@ export interface ScanOptions {
   exclude?: string[];
   languages?: Language[];
   maxFiles?: number;
+  /** Honour the repository-root .gitignore. Defaults to true. */
+  respectGitignore?: boolean;
   /** Rule ids or `category.*` globs to drop from the report. */
   ignoreRules?: string[];
   skipGit?: boolean;
@@ -49,6 +51,9 @@ export async function scan(target: ScanTarget, options: ScanOptions = {}): Promi
     ...(options.exclude ? { exclude: options.exclude } : {}),
     ...(options.languages ? { languages: options.languages } : {}),
     ...(options.maxFiles !== undefined ? { maxFiles: options.maxFiles } : {}),
+    ...(options.respectGitignore !== undefined
+      ? { respectGitignore: options.respectGitignore }
+      : {}),
   });
 
   progress(`Analyzing ${files.length} files`);

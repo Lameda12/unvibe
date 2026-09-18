@@ -79,6 +79,100 @@ export function jsDocLines(lines: string[]): Set<number> {
 }
 
 /**
+ * `raise NotImplementedError` is how Python spells an abstract method. It is a
+ * stub only when nothing marks it as one: no `@abstractmethod`, no ABC base, no
+ * docstring saying subclasses must override.
+ */
+export function pythonAbstractLines(lines: string[]): Set<number> {
+  const abstract = new Set<number>();
+  let classIsAbstract = false;
+
+  lines.forEach((raw, index) => {
+    const line = raw.trim();
+
+    const classMatch = /^class\s+(\w+)\s*(?:\(([^)]*)\))?\s*:/.exec(line);
+    if (classMatch) {
+      const name = classMatch[1] ?? '';
+      const bases = classMatch[2] ?? '';
+      classIsAbstract =
+        /\b(ABC|ABCMeta|Protocol)\b/.test(bases) ||
+        /^(Base|Abstract)\w*/.test(name) ||
+        /(Base|Mixin|Interface)$/.test(name);
+      return;
+    }
+
+    if (!/raise\s+NotImplementedError/.test(line)) return;
+
+    if (classIsAbstract) {
+      abstract.add(index);
+      return;
+    }
+
+    // Look back a few lines for a decorator or an overridable-method docstring.
+    for (let i = Math.max(0, index - 6); i < index; i += 1) {
+      const above = (lines[i] ?? '').trim();
+      if (
+        /@abstract(method|property)/.test(above) ||
+        /must\s+(be\s+)?(override|implement)/i.test(above)
+      ) {
+        abstract.add(index);
+        return;
+      }
+    }
+  });
+
+  return abstract;
+}
+
+const LICENSE_KEYWORDS =
+  /\b(copyright|licen[cs]ed?|SPDX-License-Identifier|all rights reserved|MIT License|Apache License|GNU General Public)\b/i;
+
+const PY_DOC_QUOTE = '"'.repeat(3);
+
+/**
+ * Line indices belonging to a leading licence or copyright header.
+ *
+ * Nearly every file in a large repo opens with one, and the rule-of-dashes
+ * style most of them use is indistinguishable from a decorative banner. VS Code
+ * alone produced 24,000 findings from its MIT header before this existed.
+ */
+export function licenseHeaderLines(lines: string[]): Set<number> {
+  const header = new Set<number>();
+  const block: number[] = [];
+  let sawKeyword = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < Math.min(lines.length, 30); i += 1) {
+    const line = (lines[i] ?? '').trim();
+
+    // Shebangs and encoding pragmas sit above the header without ending it.
+    if (!line || line.startsWith('#!') || /coding[:=]/.test(line)) continue;
+
+    const opensBlock = line.startsWith('/*');
+    const closesBlock = line.includes('*/');
+    const isComment =
+      inBlockComment ||
+      opensBlock ||
+      line.startsWith('//') ||
+      line.startsWith('*') ||
+      line.startsWith('#') ||
+      line.startsWith(PY_DOC_QUOTE) ||
+      line.startsWith('--');
+
+    if (!isComment) break; // The first real code ends the header region.
+
+    block.push(i);
+    if (LICENSE_KEYWORDS.test(line)) sawKeyword = true;
+
+    if (opensBlock && !closesBlock) inBlockComment = true;
+    else if (closesBlock) inBlockComment = false;
+  }
+
+  if (sawKeyword) for (const index of block) header.add(index);
+  return header;
+}
+
+/**
  * Replace the contents of string and template literals with spaces, preserving
  * length and line structure. Detectors that hunt for keywords must not fire on
  * a keyword that happens to live inside a message string.
@@ -88,6 +182,10 @@ export function blankStrings(source: string): string {
   let i = 0;
   let quote: string | null = null;
 
+  const blank = (at: number): void => {
+    if (source[at] !== '\n') out[at] = ' ';
+  };
+
   while (i < source.length) {
     const ch = source[i]!;
 
@@ -96,12 +194,29 @@ export function blankStrings(source: string): string {
         i += 2;
         continue;
       }
-      if (ch === quote) {
-        quote = null;
-      } else if (ch !== '\n') {
-        out[i] = ' ';
-      }
+      if (ch === quote) quote = null;
+      else blank(i);
       i += 1;
+      continue;
+    }
+
+    // Comments must be skipped, not scanned. An apostrophe in "doesn't" would
+    // otherwise open a string that runs to the end of the file and blanks
+    // everything after it, including the assertions we came here to find.
+    if (ch === '#' || (ch === '/' && source[i + 1] === '/')) {
+      while (i < source.length && source[i] !== '\n') {
+        blank(i);
+        i += 1;
+      }
+      continue;
+    }
+
+    if (ch === '/' && source[i + 1] === '*') {
+      while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) {
+        blank(i);
+        i += 1;
+      }
+      i += 2;
       continue;
     }
 
@@ -133,7 +248,11 @@ export function indentOf(line: string): number {
  * has one, and fall back to indentation otherwise.
  */
 export function blockExtent(lines: string[], startIndex: number): number {
-  const start = lines[startIndex] ?? '';
+  // A signature can wrap: `def f(\n  self, url\n):`. The closing line carries
+  // the block opener, so measure from there or the body is missed entirely.
+  const opener = signatureEnd(lines, startIndex);
+  const start = lines[opener] ?? '';
+  startIndex = opener;
   if (start.includes('{')) {
     const braced = braceExtent(lines, startIndex);
     if (braced !== null) return braced;
@@ -150,6 +269,24 @@ export function blockExtent(lines: string[], startIndex: number): number {
   }
 
   return end;
+}
+
+/**
+ * Advance past a parameter list that wraps across lines, returning the index of
+ * the line where it closes. Returns the input unchanged when it is balanced.
+ */
+function signatureEnd(lines: string[], startIndex: number): number {
+  let depth = 0;
+
+  for (let i = startIndex; i < Math.min(lines.length, startIndex + 20); i += 1) {
+    for (const char of stripInlineNoise(lines[i]!)) {
+      if (char === '(') depth += 1;
+      else if (char === ')') depth -= 1;
+    }
+    if (depth <= 0) return i;
+  }
+
+  return startIndex;
 }
 
 /**

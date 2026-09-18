@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
+import { loadGitignore, type IgnoreMatcher } from './gitignore.js';
 import type { FileStats, Language } from './types.js';
 
 const EXTENSION_LANGUAGE: Record<string, Language> = {
@@ -70,6 +71,8 @@ const IGNORED_DIRS = new Set([
   'benchmarks',
   'fixtures',
   '__fixtures__',
+  'docs',
+  'doc',
 ]);
 
 /** Generated or vendored files that would poison the score. */
@@ -178,6 +181,8 @@ export interface SourceFile {
 export interface WalkOptions {
   /** Extra directory or file names to skip. */
   exclude?: string[];
+  /** Honour the repository-root .gitignore. Defaults to true. */
+  respectGitignore?: boolean;
   /** Restrict to these languages. */
   languages?: Language[];
   maxFiles?: number;
@@ -188,6 +193,14 @@ export async function collectFiles(root: string, options: WalkOptions = {}): Pro
   const languages = options.languages ? new Set(options.languages) : null;
   const maxFiles = options.maxFiles ?? 20_000;
   const collected: SourceFile[] = [];
+
+  // Build output and vendored code are ignored for the same reason they are not
+  // committed: nobody wrote them, so nobody should be scored on them.
+  const ignore: IgnoreMatcher | null =
+    options.respectGitignore === false ? null : await loadGitignore(root);
+
+  const relativeTo = (absolute: string): string =>
+    path.relative(root, absolute).split(path.sep).join('/');
 
   async function visit(dir: string): Promise<void> {
     if (collected.length >= maxFiles) return;
@@ -206,12 +219,14 @@ export async function collectFiles(root: string, options: WalkOptions = {}): Pro
 
       if (entry.isDirectory()) {
         if (IGNORED_DIRS.has(entry.name) || exclude.has(entry.name)) continue;
+        if (ignore?.ignores(relativeTo(absolute), true)) continue;
         await visit(absolute);
         continue;
       }
 
       if (!entry.isFile()) continue;
       if (exclude.has(entry.name) || isIgnoredFile(entry.name)) continue;
+      if (ignore?.ignores(relativeTo(absolute))) continue;
 
       const language = languageOf(entry.name);
       if (!language) continue;
@@ -227,7 +242,7 @@ export async function collectFiles(root: string, options: WalkOptions = {}): Pro
       const source = await readFile(absolute, 'utf8').catch(() => null);
       if (source === null || looksBinary(source)) continue;
 
-      const relative = path.relative(root, absolute).split(path.sep).join('/');
+      const relative = relativeTo(absolute);
       collected.push({ stats: measure(relative, language, source), source });
     }
   }

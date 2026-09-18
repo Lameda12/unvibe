@@ -14,9 +14,9 @@ nobody made a decision, and making one.
 Never start by reading files at random. Get the map:
 
 ```bash
-npx unvibe scan .                      # current project
-npx unvibe scan owner/repo             # any public repo
-npx unvibe scan https://github.com/owner/repo#main
+npx unvibe-cli scan .                      # current project
+npx unvibe-cli scan owner/repo             # any public repo
+npx unvibe-cli scan https://github.com/owner/repo#main
 ```
 
 Useful flags: `--format json|markdown|sarif`, `--verbose`, `--min-severity high`,
@@ -25,13 +25,13 @@ Useful flags: `--format json|markdown|sarif`, `--verbose`, `--min-severity high`
 For machine-readable output to reason over:
 
 ```bash
-npx unvibe scan . --format json > /tmp/unvibe.json
+npx unvibe-cli scan . --format json > /tmp/unvibe.json
 ```
 
 Then get the ordered plan:
 
 ```bash
-npx unvibe plan . > UNVIBE.md
+npx unvibe-cli plan . > UNVIBE.md
 ```
 
 ## What the score means
@@ -91,13 +91,13 @@ Lead with what you changed and what broke. Then:
 - findings you judged wrong, and why;
 - findings left for later.
 
-Re-run `unvibe scan` at the end so the after-number is real and not estimated.
+Re-run `unvibe-cli scan` at the end so the after-number is real and not estimated.
 
 ## Gate it in CI
 
 ```bash
-npx unvibe scan . --max-slop 40        # exit 1 when the score exceeds 40
-npx unvibe scan . --format sarif > unvibe.sarif
+npx unvibe-cli scan . --max-slop 40        # exit 1 when the score exceeds 40
+npx unvibe-cli scan . --format sarif > unvibe.sarif
 ```
 
 Exit codes: `0` clean, `1` threshold exceeded, `2` the scan itself failed.

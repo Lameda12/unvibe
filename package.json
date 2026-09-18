@@ -1,5 +1,5 @@
 {
-  "name": "unvibe",
+  "name": "unvibe-cli",
   "version": "0.1.0",
   "description": "Unvibecode any repo. Scans a local or public repository for AI slop, scores it, and emits a refactor plan. Ships as an agent skill for Claude Code, OpenCode and Codex.",
   "keywords": [
@@ -22,7 +22,7 @@
     }
   },
   "bin": {
-    "unvibe": "dist/cli.js"
+    "unvibe-cli": "dist/cli.js"
   },
   "homepage": "https://github.com/Lameda12/unvibe",
   "bugs": {
