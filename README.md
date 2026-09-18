@@ -278,6 +278,27 @@ npm test
 npm run ci        # skill drift, build, format, exports, typecheck, tests
 ```
 
+### Releasing
+
+```bash
+npm run version                        # changeset version: bump + CHANGELOG
+git commit -am "Release v0.2.0"
+git push
+git tag v0.2.0 && git push --tags      # the tag triggers the publish
+```
+
+The release workflow is tag-driven rather than using the changesets
+"Version Packages" pull request. That flow needs GitHub Actions to be permitted
+to open pull requests, which is off by default and controlled at the
+organisation level; tagging needs no special permission. The workflow refuses to
+publish when the tag and `package.json` version disagree.
+
+Publishing needs an `NPM_TOKEN` repository secret. If you would rather have the
+changesets PR flow back, enable it under
+Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to
+create and approve pull requests", and restore `changesets/action` in
+`.github/workflows/release.yml`.
+
 Built on [Matt Pocock's npm package template](https://github.com/mattpocock/tt-package-demo):
 `tsup` for dual ESM/CJS, `tsc` as the linter, `vitest`, `prettier`,
 `@arethetypeswrong/cli`, changesets.

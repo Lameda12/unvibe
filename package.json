@@ -64,6 +64,7 @@
     "check-exports": "attw --pack .",
     "gen:skill": "tsx scripts/gen-skill.ts",
     "local-release": "npm run ci && changeset version && changeset publish",
-    "release": "npm run build && changeset publish"
+    "release": "npm run build && changeset publish",
+    "version": "changeset version"
   }
 }
