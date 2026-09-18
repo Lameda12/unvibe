@@ -1,0 +1,69 @@
+{
+  "name": "unvibe",
+  "version": "0.1.0",
+  "description": "Unvibecode any repo. Scans a local or public repository for AI slop, scores it, and emits a refactor plan. Ships as an agent skill for Claude Code, OpenCode and Codex.",
+  "keywords": [
+    "ai-slop",
+    "vibe-coding",
+    "static-analysis",
+    "code-quality",
+    "refactoring",
+    "claude-code",
+    "opencode",
+    "codex",
+    "agent-skills",
+    "sarif"
+  ],
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "bin": {
+    "unvibe": "dist/cli.js"
+  },
+  "homepage": "https://github.com/Lameda12/unvibe",
+  "bugs": {
+    "url": "https://github.com/Lameda12/unvibe/issues"
+  },
+  "author": "Alamedin Sabit",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lameda12/unvibe.git"
+  },
+  "license": "MIT",
+  "files": [
+    "dist",
+    "skills"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "typescript": "^5.6.2"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@changesets/cli": "^2.27.9",
+    "@types/node": "^22.7.5",
+    "prettier": "^3.3.3",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.1",
+    "vitest": "^2.1.2"
+  },
+  "scripts": {
+    "build": "tsup",
+    "ci": "npm run gen:skill -- --check && npm run build && npm run check-format && npm run check-exports && npm run lint && npm run test",
+    "lint": "tsc",
+    "test": "vitest run",
+    "format": "prettier --write .",
+    "check-format": "prettier --check .",
+    "check-exports": "attw --pack .",
+    "gen:skill": "tsx scripts/gen-skill.ts",
+    "local-release": "npm run ci && changeset version && changeset publish",
+    "release": "npm run build && changeset publish"
+  }
+}

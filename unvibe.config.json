@@ -1,0 +1,4 @@
+{
+  "ignoreRules": ["history.*", "placeholders.fake-credential"],
+  "exclude": ["content.ts"]
+}
