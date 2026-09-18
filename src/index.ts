@@ -54,3 +54,4 @@ export type {
 } from './types.js';
 export { collectFiles, languageOf, measure, type SourceFile, type WalkOptions } from './walk.js';
 export { CONFIG_FILENAMES, loadConfig, parseConfig, type UnvibeConfig } from './config.js';
+export { IgnoreMatcher, loadGitignore } from './gitignore.js';

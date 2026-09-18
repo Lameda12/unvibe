@@ -1,5 +1,13 @@
 import type { Detector, Finding } from '../types.js';
-import { commentText, identifierWords, isCommentLine, jsDocLines, makeFinding } from './util.js';
+import {
+  commentText,
+  identifierWords,
+  isCommentLine,
+  isTestPath,
+  jsDocLines,
+  licenseHeaderLines,
+  makeFinding,
+} from './util.js';
 
 /**
  * Comments that narrate the procedure the model just wrote, rather than
@@ -14,18 +22,23 @@ const NARRATION = [
 ];
 
 /** Comments that restate a language keyword. Cheap, high-precision tells. */
+/**
+ * Each pattern must match the whole comment. Anchoring matters: "Import the
+ * module" is noise, but "Import encoding now, to avoid an implicit import
+ * later" explains a decision, and an unanchored prefix match cannot tell them
+ * apart.
+ */
 const OBVIOUS = [
-  /^import(ing)?\s+(the\s+)?\w+/i,
-  /^(initialize|initialise|create|instantiate)\s+(the\s+|a\s+|an\s+)?\w+$/i,
-  /^return\s+(the\s+)?\w+$/i,
-  /^loop\s+(through|over)\b/i,
-  /^iterate\s+(through|over)\b/i,
-  /^(get|set)\s+the\s+\w+$/i,
-  /^check\s+if\b/i,
-  /^(close|open)\s+the\s+\w+$/i,
-  /^end\s+of\s+\w+$/i,
-  /^constructor$/i,
-  /^main\s+(function|entry\s?point)$/i,
+  /^import(ing)?\s+(the\s+)?[\w.]+\.?$/i,
+  /^(initialize|initialise|create|instantiate)\s+(the\s+|a\s+|an\s+)?[\w.]+\.?$/i,
+  /^returns?\s+(the\s+)?[\w.]+\.?$/i,
+  /^(loop|iterate)\s+(through|over)\s+(the\s+)?[\w.]+\.?$/i,
+  /^(get|set)\s+the\s+[\w.]+\.?$/i,
+  /^check\s+if\s+[\w.]+(\s+(is|has|exists|was))?\.?$/i,
+  /^(close|open)\s+the\s+[\w.]+\.?$/i,
+  /^end\s+of\s+[\w.]+\.?$/i,
+  /^constructor\.?$/i,
+  /^main\s+(function|entry\s?point)\.?$/i,
 ];
 
 /** Section dividers a human almost never types by hand. */
@@ -111,10 +124,20 @@ export const commentDetector: Detector = {
     const findings: Finding[] = [];
     const { lines, path, language } = ctx;
     const jsDoc = jsDocLines(lines);
+    const license = licenseHeaderLines(lines);
+    // A test helper saying "for simplicity we assume" is describing the
+    // fixture, not confessing that shipped code is unfinished.
+    const inTest = isTestPath(path);
 
     for (let i = 0; i < lines.length; i += 1) {
       const raw = lines[i]!;
       if (!isCommentLine(raw, language)) continue;
+      // A licence header is a legal requirement, not a decorative banner.
+      if (license.has(i)) continue;
+      // `# -*- coding: utf-8 -*-` and `# fmt: off` are pragmas read by tools.
+      if (/^[#/]*\s*(-\*-|fmt:|noqa|pylint:|type:|eslint|prettier-ignore)/.test(raw.trim())) {
+        continue;
+      }
 
       const text = commentText(raw);
       if (!text) continue;
@@ -142,7 +165,7 @@ export const commentDetector: Detector = {
         continue;
       }
 
-      const hedge = HEDGE.find((pattern) => pattern.test(text));
+      const hedge = !inTest && HEDGE.some((pattern) => pattern.test(text));
       if (hedge) {
         findings.push(
           makeFinding({
@@ -233,7 +256,7 @@ export const commentDetector: Detector = {
     // Count only narrative comments. JSDoc is API reference documentation, and
     // a thoroughly documented library should not be penalised for having it.
     const narrativeComments = lines.filter(
-      (raw, index) => !jsDoc.has(index) && isCommentLine(raw, language),
+      (raw, index) => !jsDoc.has(index) && !license.has(index) && isCommentLine(raw, language),
     ).length;
 
     const { codeLines } = ctx.stats;

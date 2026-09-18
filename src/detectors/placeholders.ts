@@ -1,5 +1,11 @@
 import type { Detector, Finding, Severity } from '../types.js';
-import { isCommentLine, isExamplePath, isTestPath, makeFinding } from './util.js';
+import {
+  isCommentLine,
+  isExamplePath,
+  isTestPath,
+  makeFinding,
+  pythonAbstractLines,
+} from './util.js';
 
 interface PlaceholderRule {
   rule: string;
@@ -84,12 +90,16 @@ export const placeholderDetector: Detector = {
   supports: (ctx) => !isTestPath(ctx.path) && !isExamplePath(ctx.path),
   run(ctx): Finding[] {
     const findings: Finding[] = [];
+    // An abstract method raising NotImplementedError is correct Python.
+    const abstractLines =
+      ctx.language === 'python' ? pythonAbstractLines(ctx.lines) : new Set<number>();
     for (let i = 0; i < ctx.lines.length; i += 1) {
       const raw = ctx.lines[i]!;
       const isComment = isCommentLine(raw, ctx.language);
 
       for (const rule of RULES) {
         if (rule.skipInComments && isComment) continue;
+        if (rule.rule === 'placeholders.not-implemented' && abstractLines.has(i)) continue;
 
         if (!rule.pattern.test(raw)) continue;
 

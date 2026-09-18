@@ -1,11 +1,11 @@
-# unvibe
+# unvibe-cli
 
 Point it at a repo. It tells you which parts nobody read.
 
 ```bash
-npx unvibe scan .
-npx unvibe scan expressjs/express
-npx unvibe scan https://github.com/owner/repo#main
+npx unvibe-cli scan .
+npx unvibe-cli scan expressjs/express
+npx unvibe-cli scan https://github.com/owner/repo#main
 ```
 
 ```
@@ -32,30 +32,37 @@ drive the cleanup itself.
 ## Install
 
 ```bash
-npx unvibe scan .        # no install
-npm i -g unvibe          # or globally
+npx unvibe-cli scan .        # no install
+npm i -g unvibe-cli      # or globally
 ```
 
 Node 18+. One runtime dependency (`typescript`, used as a parser).
 
-Running `unvibe` with no arguments prints the banner and the usage summary. The
+The package is `unvibe-cli`, not `unvibe`: that name belongs to an unrelated
+project on npm.
+
+Running `unvibe-cli` with no arguments prints the banner and the usage summary. The
 banner goes to stderr and only when stderr is a terminal, so
-`unvibe scan . --format json > report.json` still produces a parseable file.
+`unvibe-cli scan . --format json > report.json` still produces a parseable file.
 `--no-banner` turns it off everywhere.
 
 ## Commands
 
 ```bash
-unvibe scan [target]          # score a codebase
-unvibe plan [target]          # ordered refactor plan, as markdown
-unvibe skill install          # install the agent skill
-unvibe skill where            # print the install paths
-unvibe rules                  # list every rule id
+unvibe-cli scan [target]          # score a codebase
+unvibe-cli plan [target]          # ordered refactor plan, as markdown
+unvibe-cli skill install          # install the agent skill
+unvibe-cli skill where            # print the install paths
+unvibe-cli rules                  # list every rule id
 ```
 
 A target is a directory, `owner/repo`, or any git URL with an optional `#ref`.
-A path that exists locally always wins, so `unvibe scan .` never touches the
+A path that exists locally always wins, so `unvibe-cli scan .` never touches the
 network.
+
+The repository-root `.gitignore` is honoured by default: build output and
+vendored code are skipped for the same reason they are not committed. Pass
+`--no-gitignore` to scan them anyway.
 
 ### Options
 
@@ -71,6 +78,7 @@ network.
 | `--max-slop`       | exit 1 when the score exceeds this                |
 | `--max-findings`   | exit 1 when findings exceed this                  |
 | `--no-git`         | skip history analysis                             |
+| `--no-gitignore`   | scan files the repo's `.gitignore` excludes       |
 | `--no-duplication` | skip clone detection                              |
 | `--depth`          | clone depth for remote targets                    |
 | `--keep-clone`     | leave the clone on disk and print its path        |
@@ -95,13 +103,36 @@ The curve is anchored so that a healthy human-maintained codebase lands at a
 high A or low B. That anchor is a calibration constant, not a measurement: see
 `BASELINE_WEIGHT_PER_KLOC` in `src/score.ts` if you want to move it.
 
-**unvibe grades itself a C.** Its detector files carry long, branchy functions,
-which it flags, correctly. Tuning the thresholds until it scored an A would
-make the number meaningless, so the number stands.
+**unvibe-cli grades itself a C.** Its detector files carry long, branchy
+functions, which it flags, correctly. Tuning the thresholds until it scored an A
+would make the number meaningless, so the number stands.
+
+### The score is not yet comparable across languages
+
+This is the honest state of the tool. Measured against mature, heavily reviewed
+codebases:
+
+| Repository             | Language   | Grade  |
+| ---------------------- | ---------- | ------ |
+| `sindresorhus/slugify` | JavaScript | A (13) |
+| `expressjs/express`    | JavaScript | A (16) |
+| `microsoft/vscode`     | TypeScript | D (68) |
+| `psf/requests`         | Python     | D (70) |
+
+Express and slugify are right. VS Code and requests should not be sitting next
+to D: those numbers reflect detector density, not code quality. The JS and TS
+path uses the TypeScript AST and is precise; the Python path is line-oriented
+and fires more often per line, so the same curve punishes it harder. Large
+repositories accumulate long functions and duplicated blocks faster than the
+per-kloc normalization forgives them.
+
+Treat the grade as meaningful for JavaScript and TypeScript, and the individual
+findings as meaningful everywhere. Per-language calibration against a corpus of
+known-good repositories is the open work, and it is not a threshold tweak.
 
 ## What it looks for
 
-Nine categories, 44 rules. `unvibe rules` lists them all;
+Nine categories, 44 rules. `unvibe-cli rules` lists them all;
 [`skills/unvibe/references/rules.md`](skills/unvibe/references/rules.md) has the
 full table with severities.
 
@@ -144,12 +175,20 @@ The detectors are heuristics. A `pass` in an abstract base class is correct. A
 broad `except` at a process boundary is correct. A wrapper that pins a seam you
 genuinely swap in tests is correct.
 
-unvibe tries hard not to waste your attention: test files, fixtures and
-`examples/` are exempt from the rules that only make sense for shipped code;
-JSDoc is treated as API documentation rather than narration; a catch block with
-a comment in it scores as a decision rather than a silent swallow. The
-regression tests for every one of those live in
-[`src/detectors/calibration.test.ts`](src/detectors/calibration.test.ts).
+unvibe-cli tries hard not to waste your attention. Test files, fixtures,
+`examples/` and `docs/` are exempt from the rules that only make sense for
+shipped code. JSDoc is API documentation, not narration. Licence headers are a
+legal requirement, not decoration. A catch block with a comment in it scores as
+a decision rather than a silent swallow. In Python, `except ImportError: pass`
+is an optional-dependency probe and says nothing, a narrow `except ValueError:`
+scores far below a bare `except:`, `# type: ignore[assignment]` is the
+recommended form rather than a finding, and `raise NotImplementedError` in an
+abstract method is how the language spells an abstract method.
+
+Every one of those came from a real false positive on a real repository, and
+each has a regression test in
+[`calibration.test.ts`](src/detectors/calibration.test.ts) and
+[`language-calibration.test.ts`](src/detectors/language-calibration.test.ts).
 
 When a finding is still wrong, say so and move on. Do not silence it by deleting
 the code it points at.
@@ -175,9 +214,9 @@ no-op.
 ## The agent skill
 
 ```bash
-npx unvibe skill install                       # all three hosts
-npx unvibe skill install --host claude,codex   # pick
-npx unvibe skill install --project             # into this repo
+npx unvibe-cli skill install                       # all three hosts
+npx unvibe-cli skill install --host claude,codex   # pick
+npx unvibe-cli skill install --project             # into this repo
 ```
 
 | Host        | Path                                |
@@ -201,12 +240,12 @@ fails if the two drift. You can also just copy that directory out of this repo.
 ## CI
 
 ```bash
-npx unvibe scan . --max-slop 40
-npx unvibe scan . --format sarif -o unvibe.sarif
+npx unvibe-cli scan . --max-slop 40
+npx unvibe-cli scan . --format sarif -o unvibe.sarif
 ```
 
 ```yaml
-- run: npx unvibe scan . --format sarif -o unvibe.sarif
+- run: npx unvibe-cli scan . --format sarif -o unvibe.sarif
 - uses: github/codeql-action/upload-sarif@v3
   with:
     sarif_file: unvibe.sarif
@@ -218,7 +257,7 @@ annotations.
 ## API
 
 ```ts
-import { resolveTarget, scan, renderPlan, renderSarif } from 'unvibe';
+import { resolveTarget, scan, renderPlan, renderSarif } from 'unvibe-cli';
 
 const target = await resolveTarget('owner/repo');
 const report = await scan(target, { skipGit: true });
@@ -239,18 +278,63 @@ npm test
 npm run ci        # skill drift, build, format, exports, typecheck, tests
 ```
 
+### Releasing
+
+```bash
+npm run version                        # changeset version: bump + CHANGELOG
+git commit -am "Release v0.2.0"
+git push
+git tag v0.2.0 && git push --tags      # the tag triggers the publish
+```
+
+The release workflow is tag-driven rather than using the changesets
+"Version Packages" pull request. That flow needs GitHub Actions to be permitted
+to open pull requests, which is off by default and controlled at the
+organisation level; tagging needs no special permission. The workflow refuses to
+publish when the tag and `package.json` version disagree.
+
+Publishing needs an `NPM_TOKEN` repository secret. If you would rather have the
+changesets PR flow back, enable it under
+Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to
+create and approve pull requests", and restore `changesets/action` in
+`.github/workflows/release.yml`.
+
 Built on [Matt Pocock's npm package template](https://github.com/mattpocock/tt-package-demo):
 `tsup` for dual ESM/CJS, `tsc` as the linter, `vitest`, `prettier`,
 `@arethetypeswrong/cli`, changesets.
 
+## Known limitations
+
+- The grade is calibrated for JavaScript and TypeScript only. See above.
+- Scanning is single-threaded: 3.1M lines of VS Code takes about six minutes,
+  and progress only prints with `--verbose`.
+- A 3M-line repository produces a 37MB JSON report. There is no findings cap.
+- Duplication matches normalized text, so a clone that was renamed throughout
+  is missed.
+- No autofix, and no baseline file, so there is no way to ratchet an existing
+  repository rather than facing every finding at once.
+- Private repositories are not supported; clones run with credential prompts
+  disabled.
+- The OpenCode and Codex skill paths come from their documentation and have not
+  been verified against a live install.
+- Only nested `.gitignore` files at the repository root are read, and Windows is
+  untested.
+
 ## Prior art
 
+[aislop](https://github.com/scanaislop) is the most complete tool in this space:
+50+ rules across eight languages, distributed through npm, Homebrew and PyPI,
+with agent skills for several hosts. If you want the broadest ruleset today,
+start there.
+
 [slop-scan](https://github.com/benvinegar/slop-scan) covers TypeScript and
-JavaScript with nine error-handling rules and a normalized score.
+JavaScript with nine error-handling rules and a benchmark set.
 [ai-slop-detector](https://pypi.org/project/ai-slop-detector/) does
-evidence-based static analysis, Python first. unvibe differs in scanning remote
-repos directly, covering nine languages, folding git history into the score, and
-shipping as an agent skill rather than only a CLI.
+evidence-based static analysis, Python first.
+
+What this one does differently: it scans a public repository straight from a
+URL without cloning it yourself, folds git history into the score, and emits an
+ordered refactor plan grouped into waves rather than a flat finding list.
 
 ## License
 

@@ -21,6 +21,14 @@ const ASSERTION = [
   /\bassertThat\s*\(/,
   /\brequire\.(Equal|NoError|True)\b/,
   /\bXCTAssert/,
+  // pytest and unittest: a raises/warns context manager fails the test when the
+  // expected exception does not arrive, which is an assertion by any measure.
+  /\bpytest\.(raises|warns|approx|fail|deprecated_call)\b/,
+  /\bwith\s+raises\s*\(/,
+  /\bself\.assert\w*\s*\(/,
+  /\bself\.fail\s*\(/,
+  /\bnp\.testing\.assert\w*\b/,
+  /\btestify\.assert\w*\b/,
 ];
 
 /** Assertions that only prove the test's own scaffolding ran. */
@@ -93,7 +101,10 @@ export const testTheaterDetector: Detector = {
           makeFinding({
             rule: 'test-theater.no-assertion',
             category: 'test-theater',
-            severity: 'high',
+            // Lower than a tautology on purpose: `assert True` is provably
+            // wrong, while "no assertion" only means none of the idioms we
+            // know were found, and test frameworks are endlessly inventive.
+            severity: 'medium',
             message: `Test "${name}" asserts nothing.`,
             path,
             line: i + 1,
