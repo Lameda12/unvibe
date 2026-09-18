@@ -1,6 +1,6 @@
 {
   "name": "unvibe",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Unvibecode any repo. Scans a local or public repository for AI slop, scores it, and emits a refactor plan. Ships as an agent skill for Claude Code, OpenCode and Codex.",
   "keywords": [
     "ai-slop",
