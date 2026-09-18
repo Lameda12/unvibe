@@ -38,6 +38,11 @@ npm i -g unvibe          # or globally
 
 Node 18+. One runtime dependency (`typescript`, used as a parser).
 
+Running `unvibe` with no arguments prints the banner and the usage summary. The
+banner goes to stderr and only when stderr is a terminal, so
+`unvibe scan . --format json > report.json` still produces a parseable file.
+`--no-banner` turns it off everywhere.
+
 ## Commands
 
 ```bash

@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 
 import { loadConfig, type UnvibeConfig } from './config.js';
 import { renderPlan } from './plan.js';
+import { renderBanner, showBanner } from './report/banner.js';
 import { render, type Format } from './report/index.js';
 import { scan, VERSION, type ScanOptions } from './scan.js';
 import { HOSTS, hostSpecs, installSkill, type Host } from './skill/install.js';
@@ -15,9 +16,7 @@ const EXIT_ERROR = 2;
 
 const SEVERITY_RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2, info: 3 };
 
-const USAGE = `unvibe ${VERSION} — find and fix AI slop in a codebase
-
-USAGE
+const USAGE = `USAGE
   unvibe scan [target] [options]     score a codebase
   unvibe plan [target] [options]     emit an ordered refactor plan
   unvibe skill install [options]     install the agent skill
@@ -41,6 +40,7 @@ SCAN OPTIONS
       --no-git             skip git history analysis
       --no-duplication     skip cross-file clone detection
       --keep-clone         leave a cloned repo on disk and print its path
+      --no-banner          suppress the startup banner
       --depth <n>          clone depth for remote targets (default: full)
 
 SKILL OPTIONS
@@ -151,6 +151,18 @@ function filterBySeverity(findings: Finding[], min: string | boolean | undefined
   return findings.filter((f) => SEVERITY_RANK[f.severity] <= floor);
 }
 
+/** Machine-readable output is usually piped or redirected; keep it uncluttered. */
+const PIPEABLE: ReadonlySet<Format> = new Set<Format>(['json', 'sarif', 'markdown']);
+
+function bannerFor(args: ParsedArgs, format: Format): boolean {
+  return showBanner({
+    version: VERSION,
+    suppressed: args.flags.get('no-banner') === true || PIPEABLE.has(format),
+    // Nobody is reading a banner in a CI log.
+    requireTty: true,
+  });
+}
+
 function scanOptionsFrom(flags: ParsedArgs['flags'], config: UnvibeConfig = {}): ScanOptions {
   // Flags win over config; where both are lists, they merge.
   const exclude = [...(config.exclude ?? []), ...list(flags.get('exclude'))];
@@ -177,6 +189,8 @@ async function runScan(args: ParsedArgs): Promise<number> {
   const keepClone = args.flags.get('keep-clone') === true;
   const depth = number(args.flags.get('depth'));
 
+  const bannerShown = bannerFor(args, format);
+
   const target = await resolveTarget(input, {
     keepClone,
     ...(depth !== null ? { depth } : {}),
@@ -193,7 +207,10 @@ async function runScan(args: ParsedArgs): Promise<number> {
       findings: filterBySeverity(report.findings, minSeverity),
     };
 
-    const output = render(filtered, format, { verbose: args.flags.get('verbose') === true });
+    const output = render(filtered, format, {
+      verbose: args.flags.get('verbose') === true,
+      showToolName: !bannerShown,
+    });
     const outputPath = args.flags.get('output');
 
     if (typeof outputPath === 'string') {
@@ -232,6 +249,9 @@ async function runPlan(args: ParsedArgs): Promise<number> {
   const input = args.positional[0] ?? '.';
   const depth = number(args.flags.get('depth'));
 
+  // The plan itself is markdown on stdout, so the banner stays on stderr.
+  bannerFor(args, 'terminal');
+
   const target = await resolveTarget(input, {
     ...(depth !== null ? { depth } : {}),
     onProgress: (message) => process.stderr.write(`  ${message}\n`),
@@ -266,6 +286,7 @@ async function runPlan(args: ParsedArgs): Promise<number> {
 
 async function runSkill(args: ParsedArgs): Promise<number> {
   const action = args.positional[0] ?? 'install';
+  bannerFor(args, 'terminal');
 
   if (action === 'where') {
     const specs = hostSpecs();
@@ -373,6 +394,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   if (args.flags.get('help') === true || args.command === 'help') {
+    if (args.flags.get('no-banner') !== true) {
+      process.stdout.write(`${renderBanner({ version: VERSION, stream: process.stdout })}\n`);
+    }
+    process.stdout.write(USAGE);
+    return EXIT_OK;
+  }
+
+  // Bare `unvibe`: say hello and show the way in, rather than silently
+  // scanning the working directory and surprising someone who just typed it.
+  if (argv.length === 0) {
+    process.stdout.write(`${renderBanner({ version: VERSION, stream: process.stdout })}\n`);
     process.stdout.write(USAGE);
     return EXIT_OK;
   }
@@ -398,7 +430,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (looksLikeTarget) {
           return await runScan({ ...args, positional: [args.command, ...args.positional] });
         }
-        process.stderr.write(`Unknown command "${args.command}".\n\n${USAGE}`);
+        process.stderr.write(`unvibe ${VERSION}\n\nUnknown command "${args.command}".\n\n${USAGE}`);
         return EXIT_ERROR;
       }
     }

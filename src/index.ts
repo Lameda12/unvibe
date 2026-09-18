@@ -3,6 +3,13 @@ export { findDuplication, type DuplicationOptions } from './duplication.js';
 export { collectGitSignals, gitFindings } from './git.js';
 export { buildWaves, renderPlan, type PlanOptions, type Wave } from './plan.js';
 export {
+  renderBanner,
+  showBanner,
+  supportsColor,
+  type BannerOptions,
+  type ShowBannerOptions,
+} from './report/banner.js';
+export {
   render,
   renderJson,
   renderMarkdown,

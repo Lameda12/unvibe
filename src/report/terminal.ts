@@ -72,6 +72,11 @@ function groupByFile(findings: Finding[]): Map<string, Finding[]> {
 export interface TerminalOptions {
   /** Show every finding rather than the worst ones per file. */
   verbose?: boolean;
+  /**
+   * Prefix the header with the tool name. Set false when a banner already
+   * printed it, so the name does not appear twice on one screen.
+   */
+  showToolName?: boolean;
   maxFilesShown?: number;
   maxPerFile?: number;
 }
@@ -85,7 +90,8 @@ export function renderTerminal(report: ScanReport, options: TerminalOptions = {}
   const out: string[] = [''];
 
   const label = report.target.remoteUrl ?? report.target.input;
-  out.push(paint(`  unvibe  ${label}`, 'bold'));
+  const prefix = options.showToolName === false ? '' : 'unvibe  ';
+  out.push(paint(`  ${prefix}${label}`, 'bold'));
   out.push(
     paint(
       `  ${files.length} files, ${codeLines.toLocaleString()} code lines, scanned in ${(report.durationMs / 1000).toFixed(1)}s`,
